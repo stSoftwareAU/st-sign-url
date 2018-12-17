@@ -15,7 +15,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.text.ParseException;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import javax.annotation.CheckReturnValue;
 import javax.annotation.Nonnegative;
 import javax.annotation.Nonnull;
@@ -38,6 +40,7 @@ public class SignedURL {
     private final @Nonnull String accessKey;
     private final @Nonnull String region;
     private final @Nonnull String service;
+    private final @Nonnull String givenSignature;
     private final int expires;
     private static final String HMAC_SHA1_ALGORITHM = "HmacSHA1";
 
@@ -70,7 +73,8 @@ public class SignedURL {
         final @Nonnull String region,
         final @Nonnull String service,
         final @Nonnull Date date,
-        final int expires
+        final int expires,
+        final @Nonnull String givenSignature
     )
     {
         this.method=method;
@@ -84,14 +88,40 @@ public class SignedURL {
         this.service=service;
         this.date=date;
         this.expires=expires;
+        this.givenSignature=givenSignature;
     }
     
-    public URL generate( final @Nonnull String secretKey)
+    public String findValid( final String... keys) throws ExpiriedSignedURLException, NoMatchingSignatureException
     {
-        if( StringUtilities.isBlank(secretKey))
+        long now=System.currentTimeMillis();
+        
+        if( date.getTime()>now)
         {
-            throw new IllegalArgumentException("Secret key must not be blank");
+            throw new ExpiriedSignedURLException( "Not valid for " + TimeUtil.getDiff(now, date.getTime()));
         }
+        
+        if( expires > 0 && now > date.getTime() + expires * 1000l)
+        {
+            throw new ExpiriedSignedURLException( "Expired " + TimeUtil.getDiff(date) + " ago");
+        }
+        
+        for( String key:keys)
+        {
+            StringBuilder algorithmBuilder=new StringBuilder();
+            String checkSignature=calculateSignature( key,algorithmBuilder);
+            
+            if( givenSignature.equals( checkSignature))
+            {
+                return key;
+            }
+                
+        }
+        
+        throw new NoMatchingSignatureException( "No match found");
+    }
+    
+    private String calculateSignature(final @Nonnull String secretKey, final @Nonnull StringBuilder algorithmBuilder)
+    {
         
         /*
         GET
@@ -104,13 +134,11 @@ public class SignedURL {
         */
         String canonicalRequest=method.name()+"\n";
         
-        String tempURL=protocol + "://" + host;
         if( path!=null)
         {
             canonicalRequest+=path+"\n";
-            tempURL+= path;
         }
-        String tempAlgorithm=algorithm.nameSpace + "Algorithm="+ algorithm.value;
+        algorithmBuilder.append(algorithm.nameSpace).append("Algorithm=").append(algorithm.value);
         
         String credential=accessKey;
         String yyyyMMdd=TimeUtil.format("yyyyMMdd", date, null);
@@ -130,36 +158,27 @@ public class SignedURL {
         }
         credential+="/" + scope;
         
-        tempAlgorithm+="&" +algorithm.nameSpace + "Credential="+ StringUtilities.encode(credential).replace("%2f", "%2F");
+        algorithmBuilder.append("&").append(algorithm.nameSpace).append("Credential=").append(StringUtilities.encode(credential).replace("%2f", "%2F"));
         
         String ds = TimeUtil.format("yyyyMMdd'T'HHmmss'Z'", date, null);
-        tempAlgorithm+="&" +algorithm.nameSpace + "Date="+ ds;
+        algorithmBuilder.append("&").append(algorithm.nameSpace).append("Date=").append(ds);
 
         if( expires > 0)
         {
-            tempAlgorithm+="&" +algorithm.nameSpace + "Expires="+ expires;
+            algorithmBuilder.append("&").append(algorithm.nameSpace).append("Expires=").append(expires);
         }
         
         if( algorithm == Algorithm.AWS4_HMAC_SHA256)
         {
-            tempAlgorithm+="&X-Amz-SignedHeaders=host";
+            algorithmBuilder.append("&X-Amz-SignedHeaders=host");
         }
         
-        canonicalRequest+=tempAlgorithm+"\n";
+        canonicalRequest+=algorithmBuilder+"\n";
         canonicalRequest+="host:" + host+"\n";
         canonicalRequest+=  "\nhost\n" +
                             "UNSIGNED-PAYLOAD";
 
         String canonicalRequestHex=calculateSHA256(canonicalRequest);
-        
-        tempURL+="?" + tempAlgorithm;
-        
-        String stringToSign=algorithm.value+"\n"+
-                ds+"\n"+
-                scope +"\n"+
-                canonicalRequestHex;
-        
-        
         byte[] signingKey=calculateHMACSHA256((algorithm.value.substring(0,4) + secretKey).getBytes(), yyyyMMdd.getBytes());
         if( StringUtilities.notBlank(region)) 
         {
@@ -174,7 +193,35 @@ public class SignedURL {
             signingKey=calculateHMACSHA256(signingKey, algorithm.requestType.getBytes());
         }
         
+        String stringToSign=algorithm.value+"\n"+
+            ds+"\n"+
+            scope +"\n"+
+            canonicalRequestHex;
+        
         String signature=StringUtilities.toHexString(calculateHMACSHA256(signingKey,stringToSign.getBytes()));
+        
+        return signature;
+    }
+    public URL generate( final @Nonnull String secretKey)
+    {
+        if( StringUtilities.isBlank(secretKey))
+        {
+            throw new IllegalArgumentException("Secret key must not be blank");
+        }
+        
+        String tempURL=protocol + "://" + host;
+        if( path!=null)
+        {
+            tempURL+= path;
+        }
+
+        
+
+        StringBuilder algorithmBuilder=new StringBuilder();
+        
+        String signature=calculateSignature( secretKey,algorithmBuilder);
+        tempURL+="?" + algorithmBuilder;
+        
         
         tempURL+="&" +algorithm.nameSpace +"Signature="+signature;
 
@@ -216,21 +263,21 @@ public class SignedURL {
             throw CLogger.rethrowRuntimeExcepton(nsa);
         }
     }
-    
-    @Nonnull @CheckReturnValue
-    private String calculateRFC2104HMAC(final @Nonnull String data, final @Nonnull String key)
-    {
-        try{
-            SecretKeySpec signingKey = new SecretKeySpec(key.getBytes(), HMAC_SHA1_ALGORITHM);
-            Mac mac = Mac.getInstance(HMAC_SHA1_ALGORITHM);
-            mac.init(signingKey);
-            return new String(StringUtilities.encodeBase64(mac.doFinal(data.getBytes())));
-        }
-        catch( IllegalStateException | InvalidKeyException | NoSuchAlgorithmException e)
-        {
-            throw CLogger.rethrowRuntimeExcepton(e);
-        }
-    }
+//    
+//    @Nonnull @CheckReturnValue
+//    private String calculateRFC2104HMAC(final @Nonnull String data, final @Nonnull String key)
+//    {
+//        try{
+//            SecretKeySpec signingKey = new SecretKeySpec(key.getBytes(), HMAC_SHA1_ALGORITHM);
+//            Mac mac = Mac.getInstance(HMAC_SHA1_ALGORITHM);
+//            mac.init(signingKey);
+//            return new String(StringUtilities.encodeBase64(mac.doFinal(data.getBytes())));
+//        }
+//        catch( IllegalStateException | InvalidKeyException | NoSuchAlgorithmException e)
+//        {
+//            throw CLogger.rethrowRuntimeExcepton(e);
+//        }
+//    }
     
     /**
      * Create a builder.
@@ -273,12 +320,39 @@ public class SignedURL {
         {
             throw new IllegalArgumentException("URL must not include user info was: " + userInfo);
         }
+
+        int port=url.getPort();
+        if( port <0)port=0;
+        Builder b= builder(method, url.getProtocol(), url.getHost(), url.getPath(), port);
+        
         String query=url.getQuery();
         if( StringUtilities.notBlank(query))
         {
-            throw new IllegalArgumentException("URL must not include query was: " + query);
+            for( String nameValuePair:query.split("&"))
+            {
+                int pos=nameValuePair.indexOf("=");
+                
+                String name;
+                String value;
+                
+                if( pos!=-1)
+                {
+                    name=StringUtilities.decode(nameValuePair.substring(0, pos));
+                    value=StringUtilities.decode(nameValuePair.substring(pos+1));
+                }
+                else
+                {
+                    name=StringUtilities.decode(nameValuePair);
+                    value="";
+                }
+                
+                b.addParameter( name, value);
+                
+            }
         }
-        return builder(method, url.getProtocol(), url.getHost(), url.getFile(), url.getPort());
+        
+
+        return b;
     }
     
     public static class Builder{
@@ -292,8 +366,9 @@ public class SignedURL {
         private String service="";
         private Date date=new Date();
         private int expires;
-        
+        private String expectedSignature="";
         private Algorithm algorithm=Algorithm.STS1_HMAC_SHA256;
+        private final LinkedHashMap<String, String> parameters=new LinkedHashMap<>();
         
         private Builder(final @Nonnull Method method, final @Nonnull String protocol, final @Nonnull String host, final @Nullable String path, final int port)
         {
@@ -307,7 +382,7 @@ public class SignedURL {
             }
             if( port < 0)
             {
-                throw new IllegalArgumentException("port must not be negative" );
+                throw new IllegalArgumentException("port must not be negative was: " + port );
             }
             if( path==null || path.equals(""))
             {
@@ -327,6 +402,94 @@ public class SignedURL {
             this.port=port;
         }
         
+        public Builder addParameter( final @Nonnull String name, final @Nonnull String value)
+        {
+            if( name.matches("X-[a-z]{3}-.+"))
+            {
+                if( name.endsWith("Algorithm"))
+                {
+                    boolean found=false;
+                    for( Algorithm a: Algorithm.values())
+                    {
+                        if( a.value.equals( value))
+                        {
+                            setAlgorithm(a);      
+                            found=true;
+                        }
+                    }
+                    
+                    if( found==false)
+                    {
+                        throw new IllegalArgumentException("No algorithm: " + value);
+                    }
+                }
+                else if( name.endsWith("Date"))
+                {
+                    try{
+                        Date d=TimeUtil.parse("yyyyMMdd'T'HHmmss'Z'", value, null);
+                        setDate(d);
+                    }
+                    catch( ParseException pe)
+                    {
+                        throw new IllegalArgumentException( "not a date parsible string was: " + value, pe);
+                    }
+                }
+                else if( name.endsWith("Credential"))
+                {
+                    int pos=value.indexOf("/");
+                    if( pos!=-1)
+                    {
+                        String tmpAccessKey=value.substring(0, pos);
+                        setAccessKey(tmpAccessKey);
+                        
+                        int start=pos+1;
+                        int end=value.indexOf("/", start);
+                        
+                        if( end!=-1)
+                        {
+                            String tmpRegion=value.substring(start, end);
+                            setRegion(tmpRegion);
+                            
+                            start = end+1;
+                            end=value.indexOf("/", start);
+                            
+                            if( end!=-1)
+                            {
+                                String tmpService=value.substring(start, end);
+                                setService(tmpService);
+                            }
+                        }
+//                        else
+//                        {
+//                            
+//                        }
+                    }
+                    else
+                    {
+                        throw new IllegalArgumentException("Invalid Credential: " + value);
+                    }
+                }                
+                else if( name.endsWith("Expires"))
+                {
+                    setExpires(Integer.parseInt(value));
+                }
+                else if( name.endsWith("Signature"))
+                {
+                    setSignature(value);
+                }
+                else
+                {
+                    parameters.put(name, value);
+                }
+//                                    + "X-Amz-Algorithm=AWS4-HMAC-SHA256&"
+//            + "X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&"
+//                + "X-Amz-Date=20130524T000000Z&"
+//                + "X-Amz-Expires=86400&"
+//            + "X-Amz-SignedHeaders=host&"
+//                + "X-Amz-Signature=aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404";
+            }
+            return this;
+        }
         @Nonnull
         public Builder setAccessKey( final @Nonnull String accessKey )
         {
@@ -337,7 +500,17 @@ public class SignedURL {
             this.accessKey=accessKey;
             return this;
         }
-                
+        @Nonnull
+        public Builder setSignature( final @Nonnull String signature )
+        {
+            if( StringUtilities.isBlank(signature))
+            {
+                throw new IllegalArgumentException("signature is mandatory");
+            }
+            this.expectedSignature=signature;
+            return this;
+        }
+                           
         @Nonnull
         public Builder setRegion( final @Nonnull String region )
         {
@@ -396,7 +569,7 @@ public class SignedURL {
         @Nonnull @CheckReturnValue
         public SignedURL create()
         {
-            return new SignedURL(method, protocol, host, path, port,algorithm,accessKey,region,service,date,expires);
+            return new SignedURL(method, protocol, host, path, port,algorithm,accessKey,region,service,date,expires,expectedSignature);
         }
     } 
 }

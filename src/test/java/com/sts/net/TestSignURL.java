@@ -66,5 +66,79 @@ public class TestSignURL extends TestCase{
         String foundKey=su2.findValid("abc", secretKey);
         
         assertEquals( "found match", secretKey, foundKey);
+    }    
+    
+    public void testExpired() throws ExpiriedSignedURLException, NoMatchingSignatureException, InterruptedException
+    {
+        SignedURL su=SignedURL.builder(Method.GET, "https", "demo1.jobtrack.com.au", "/test.txt")
+//                .setAlgorithm(SignedURL.Algorithm.AWS4_HMAC_SHA256)
+                .setAccessKey("admin")
+//                .setRegion("us-east-1")
+//                .setService("s3")
+                .setExpires(1)
+//                .setDate(date)
+                .create();
+        
+        String secretKey="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+        
+        URL url=su.generate(secretKey);
+        
+        SignedURL su2=SignedURL.builder(Method.GET, url).create();
+        URL url2=su2.generate(secretKey);
+        
+        assertEquals( "match URLs", url.toString(), url2.toString());
+        Thread.sleep(2000);
+        try{
+            su2.findValid("abc", secretKey);
+            fail( "Should have expired");
+        }
+        catch( ExpiriedSignedURLException ese)
+        {
+            // Expected. 
+        }
     }
+    
+    
+    public void testValidParameters() throws Exception
+    {
+        SignedURL su=SignedURL.builder(Method.GET, "https", "demo1.jobtrack.com.au", "/test.txt")
+//                .setAlgorithm(SignedURL.Algorithm.AWS4_HMAC_SHA256)
+                .setAccessKey("admin")
+//                .setRegion("us-east-1")
+//                .setService("s3")
+//                .setExpires(86400)
+//                .setDate(date)
+                .addParameter("X", "1")
+                .addParameter("Y", "2")
+                .addParameter("Z", "3")
+                .create();
+        
+        String secretKey="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+        
+        URL url=su.generate(secretKey);
+        
+        SignedURL su2=SignedURL.builder(Method.GET, url).create();
+        
+        String foundKey=su2.findValid("abc", secretKey);
+        
+        assertEquals( "found match", secretKey, foundKey);
+
+
+        
+        URL url3=new URL( url.toString().replace("X=1", "X=2"));
+        
+        SignedURL su3=SignedURL.builder(Method.GET, url3).create();
+
+        try
+        {
+            su3.findValid("abc", secretKey);
+            fail( "Should not have a valid key: " + url3);
+        }
+        catch( NoMatchingSignatureException nmse)
+        {
+            // Expected.
+        }
+    }    
+    
+    
 }

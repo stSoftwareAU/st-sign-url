@@ -42,8 +42,8 @@ public class SignedURL {
     private final @Nonnull String service;
     private final @Nonnull String givenSignature;
     private final int expires;
-    private static final String HMAC_SHA1_ALGORITHM = "HmacSHA1";
-
+//    private static final String HMAC_SHA1_ALGORITHM = "HmacSHA1";
+    private final LinkedHashMap<String, String> parameters;
     private final @Nonnull Date date;
     
     public enum Algorithm{
@@ -74,7 +74,8 @@ public class SignedURL {
         final @Nonnull String service,
         final @Nonnull Date date,
         final int expires,
-        final @Nonnull String givenSignature
+        final @Nonnull String givenSignature,
+        final LinkedHashMap<String, String> parameters
     )
     {
         this.method=method;
@@ -89,6 +90,7 @@ public class SignedURL {
         this.date=date;
         this.expires=expires;
         this.givenSignature=givenSignature;
+        this.parameters=parameters;
     }
     
     public String findValid( final String... keys) throws ExpiriedSignedURLException, NoMatchingSignatureException
@@ -174,6 +176,13 @@ public class SignedURL {
         }
         
         canonicalRequest+=algorithmBuilder+"\n";
+        
+        for( String name:parameters.keySet())
+        {
+            String value=parameters.get(name);
+            canonicalRequest+=StringUtilities.encode(name)+":" + StringUtilities.encode(value)+"\n";
+            
+        }
         canonicalRequest+="host:" + host+"\n";
         canonicalRequest+=  "\nhost\n" +
                             "UNSIGNED-PAYLOAD";
@@ -225,6 +234,11 @@ public class SignedURL {
         
         tempURL+="&" +algorithm.nameSpace +"Signature="+signature;
 
+        for( String name:parameters.keySet())
+        {
+            String value=parameters.get(name);
+            tempURL+="&" +StringUtilities.encode(name)+"=" + StringUtilities.encode(value);            
+        }
         try {
             return new URL(tempURL);
         } catch (MalformedURLException ex) {
@@ -488,6 +502,10 @@ public class SignedURL {
 //            + "X-Amz-SignedHeaders=host&"
 //                + "X-Amz-Signature=aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404";
             }
+            else
+            {
+                parameters.put(name, value);
+            }
             return this;
         }
         @Nonnull
@@ -569,7 +587,7 @@ public class SignedURL {
         @Nonnull @CheckReturnValue
         public SignedURL create()
         {
-            return new SignedURL(method, protocol, host, path, port,algorithm,accessKey,region,service,date,expires,expectedSignature);
+            return new SignedURL(method, protocol, host, path, port,algorithm,accessKey,region,service,date,expires,expectedSignature, parameters);
         }
     } 
 }

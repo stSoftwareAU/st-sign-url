@@ -8,6 +8,7 @@ import com.aspc.remote.rest.Method;
 import com.aspc.remote.util.misc.TimeUtil;
 import java.net.URL;
 import java.text.ParseException;
+import java.util.ArrayList;
 import java.util.Date;
 import junit.framework.TestCase;
 /**
@@ -42,6 +43,39 @@ public class TestSignURL extends TestCase{
         System.out.println( actual);
         assertEquals( "signed URL", expected, actual);
     }
+    
+    public void testCreateLocal() throws Exception
+    {
+        URL tempURL=new URL("http://localhost:8080");
+
+        String sessionID="gfK8iKNeOksZV7c6qFjigq_fwWI3AY2tSg3RowwI";
+        
+        Date date=TimeUtil.parse("yyyyMMdd'T'HHmmss'Z'", "20190415T082245Z", null);
+        
+        
+        URL url=SignedURL.builder(
+            Method.GET,
+            tempURL.getProtocol(),
+            tempURL.getHost()+":" + tempURL.getPort(),
+            "/ReST/v1/onix/export")
+            .setAlgorithm(SignedURL.Algorithm.STS1_HMAC_SHA256 )
+            .addParameter("version", "3")
+            .setDate(date)
+            .addParameter("recordReference", "139-9781419719806")
+            .addParameter("LAYERID",Integer.toString( 2021))
+            .setAccessKey("nigel")
+            .create()
+            .generate(sessionID);
+
+        String expectedURL="http://localhost:8080/ReST/v1/onix/export?X-sts-Algorithm=STS1-HMAC-SHA256&X-sts-Credential=nigel%2F20190415&X-sts-Date=20190415T082245Z&X-sts-Signature=b0a829015959c62cf414adafeb03077e36ee5b723b0eb03e37dea9e5c1394d5f&version=3&recordReference=139-9781419719806&LAYERID=2021";
+        String actualURL= url.toString();
+        
+        assertEquals( "match URL",expectedURL,actualURL );
+        
+        
+        SignedURL.builder(Method.GET, url).create().findValid(sessionID);
+    }
+    
     
     public void testValidFor7Days() throws ExpiriedSignedURLException, NoMatchingSignatureException
     {

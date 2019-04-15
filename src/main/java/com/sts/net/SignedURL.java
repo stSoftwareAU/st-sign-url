@@ -34,7 +34,7 @@ public class SignedURL {
     private final @Nonnull Method method;
     private final @Nonnull String protocol;
     private final @Nonnull String host; 
-    private final int port;
+//    private final int port;
     private final @Nonnull String path;
     private final @Nonnull Algorithm algorithm;
     private final @Nonnull String accessKey;
@@ -67,7 +67,7 @@ public class SignedURL {
         final @Nonnull String protocol, 
         final @Nonnull String host, 
         final @Nullable String path, 
-        final int port,
+//        final int port,
         final @Nonnull Algorithm algorithm,
         final @Nonnull String accessKey,
         final @Nonnull String region,
@@ -80,8 +80,13 @@ public class SignedURL {
     {
         this.method=method;
         this.host=host;
+        if( host == null ) throw new IllegalArgumentException("host is mandatory");
+        if( host.matches("^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\\-]*[a-zA-Z0-9])\\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\\-]*[A-Za-z0-9])(|:[0-9]+)$") == false )
+        {
+            throw new IllegalArgumentException("invalid host: " + host);
+        }
         this.protocol=protocol;
-        this.port=port;
+//        this.port=port;
         this.path=path;
         this.algorithm=algorithm;
         this.accessKey=accessKey;
@@ -183,7 +188,15 @@ public class SignedURL {
             canonicalRequest+=StringUtilities.encode(name)+":" + StringUtilities.encode(value)+"\n";
             
         }
-        canonicalRequest+="host:" + host+"\n";
+        if( host.contains(":"))
+        {
+            int pos = host.indexOf(":");
+            canonicalRequest+="host:" + host.substring(0, pos) +"\n";
+        }
+        else
+        {
+            canonicalRequest+="host:" + host +"\n";
+        }
         canonicalRequest+=  "\nhost\n" +
                             "UNSIGNED-PAYLOAD";
 
@@ -206,7 +219,7 @@ public class SignedURL {
             ds+"\n"+
             scope +"\n"+
             canonicalRequestHex;
-        
+
         String signature=StringUtilities.toHexString(calculateHMACSHA256(signingKey,stringToSign.getBytes()));
         
         return signature;
@@ -298,13 +311,12 @@ public class SignedURL {
      * @param method the method.
      * @param protocol the protocol
      * @param host the host
-     * @param port the port
      * @param path the path
      * @return
      */
-    public static Builder builder(final @Nonnull Method method, final @Nonnull String protocol, final @Nonnull String host, final @Nonnull String path, final @Nonnegative int port)
+    public static Builder builder(final @Nonnull Method method, final @Nonnull String protocol, final @Nonnull String host, final @Nonnull String path)//, final @Nonnegative int port)
     {
-        return new Builder(method, protocol, host, path,port);
+        return new Builder(method, protocol, host, path);//,port);
     }
     
     /**
@@ -315,10 +327,10 @@ public class SignedURL {
      * @param path the path
      * @return
      */
-    public static Builder builder(final @Nonnull Method method, final @Nonnull String protocol, final @Nonnull String host, final @Nonnull String path)
-    {
-        return new Builder(method, protocol, host, path,0);
-    }
+//    public static Builder builder(final @Nonnull Method method, final @Nonnull String protocol, final @Nonnull String host, final @Nonnull String path)
+//    {
+//        return new Builder(method, protocol, host, path);//,0);
+//    }
     
     /**
      * Create a builder.
@@ -335,9 +347,9 @@ public class SignedURL {
             throw new IllegalArgumentException("URL must not include user info was: " + userInfo);
         }
 
-        int port=url.getPort();
-        if( port <0)port=0;
-        Builder b= builder(method, url.getProtocol(), url.getHost(), url.getPath(), port);
+//        int port=url.getPort();
+//        if( port <0)port=0;
+        Builder b= builder(method, url.getProtocol(), url.getHost(), url.getPath());//, port);
         
         String query=url.getQuery();
         if( StringUtilities.notBlank(query))
@@ -373,7 +385,7 @@ public class SignedURL {
         private final Method method;
         private final String protocol;
         private final String host; 
-        private final int port;
+//        private final int port;
         private final String path;
         private String accessKey="guest";
         private String region="";
@@ -384,7 +396,7 @@ public class SignedURL {
         private Algorithm algorithm=Algorithm.STS1_HMAC_SHA256;
         private final LinkedHashMap<String, String> parameters=new LinkedHashMap<>();
         
-        private Builder(final @Nonnull Method method, final @Nonnull String protocol, final @Nonnull String host, final @Nullable String path, final int port)
+        private Builder(final @Nonnull Method method, final @Nonnull String protocol, final @Nonnull String host, final @Nullable String path)//, final int port)
         {
             if( protocol.matches("http(|s)")==false)
             {
@@ -394,10 +406,10 @@ public class SignedURL {
             {
                 throw new IllegalArgumentException("host must not be blank" );
             }
-            if( port < 0)
-            {
-                throw new IllegalArgumentException("port must not be negative was: " + port );
-            }
+//            if( port < 0)
+//            {
+//                throw new IllegalArgumentException("port must not be negative was: " + port );
+//            }
             if( path==null || path.equals(""))
             {
                 this.path=null;
@@ -413,7 +425,7 @@ public class SignedURL {
             this.method=method;
             this.host=host;
             this.protocol=protocol;
-            this.port=port;
+//            this.port=port;
         }
         
         public Builder addParameter( final @Nonnull String name, final @Nonnull String value)
@@ -587,7 +599,7 @@ public class SignedURL {
         @Nonnull @CheckReturnValue
         public SignedURL create()
         {
-            return new SignedURL(method, protocol, host, path, port,algorithm,accessKey,region,service,date,expires,expectedSignature, parameters);
+            return new SignedURL(method, protocol, host, path, algorithm,accessKey,region,service,date,expires,expectedSignature, parameters);
         }
     } 
 }

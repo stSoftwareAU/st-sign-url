@@ -48,7 +48,7 @@ public class SignedURL {
     
     public enum Algorithm{
         STS1_HMAC_SHA256("STS1-HMAC-SHA256","X-sts-", ""),
-        APA1_HMAC_SHA256("APA1-HMAC-SHA256","X-apat-", ""),
+        APA1_HMAC_SHA256("APA1-HMAC-SHA256","X-tpt-", ""), //APA Token
         AWS4_HMAC_SHA256("AWS4-HMAC-SHA256","X-Amz-", "aws4_request");
         
         public final String value;
@@ -431,7 +431,7 @@ public class SignedURL {
         
         public Builder addParameter( final @Nonnull String name, final @Nonnull String value)
         {
-            if( name.matches("X-[a-z]{3}-.+"))
+            if( name.matches("X-[a-zA-Z]{3}-.+"))
             {
                 if( name.endsWith("Algorithm"))
                 {

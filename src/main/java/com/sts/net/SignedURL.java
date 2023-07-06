@@ -103,7 +103,7 @@ public class SignedURL {
     {
         long now=System.currentTimeMillis();
         
-        if( date.getTime()>now)
+        if( date.getTime() > now + 5 * 60 * 1000)
         {
             throw new ExpiriedSignedURLException( "Not valid for " + TimeUtil.getDiff(now, date.getTime()));
         }

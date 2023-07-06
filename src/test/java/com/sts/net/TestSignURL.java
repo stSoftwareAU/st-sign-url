@@ -76,6 +76,58 @@ public class TestSignURL extends TestCase{
         SignedURL.builder(Method.GET, url).create().findValid(sessionID);
     }
     
+    public void testValid5MinBefore() throws Exception
+    {
+        URL tempURL=new URL("http://localhost:8080");
+
+        String sessionID="gfK8iKNeOksZV7c6qFjigq_fwWI3AY2tSg3RowwI";
+        
+        //should pass if date gap is 5 or less minutes
+        Date date = new Date(System.currentTimeMillis() + 5 * 60 * 1000);//date is 5 min in future
+        
+        URL url=SignedURL.builder(
+            Method.GET,
+            tempURL.getProtocol(),
+            tempURL.getHost()+":" + tempURL.getPort(),
+            "/ReST/v1/onix/export")
+            .setAlgorithm(SignedURL.Algorithm.STS1_HMAC_SHA256 )
+            .addParameter("version", "3")
+            .setDate(date)
+            .addParameter("recordReference", "139-9781419719806")
+            .addParameter("LAYERID",Integer.toString( 2021))
+            .setAccessKey("nigel")
+            .create()
+            .generate(sessionID);
+
+        SignedURL.builder(Method.GET, url).create().findValid(sessionID);
+        
+        //if the date gap is longer than 5 minutes, should be failed
+        date = new Date(System.currentTimeMillis() + 5 * 60 * 1000 + 10000);//date is 5 min 10 sec in future
+        
+        url=SignedURL.builder(
+            Method.GET,
+            tempURL.getProtocol(),
+            tempURL.getHost()+":" + tempURL.getPort(),
+            "/ReST/v1/onix/export")
+            .setAlgorithm(SignedURL.Algorithm.STS1_HMAC_SHA256 )
+            .addParameter("version", "3")
+            .setDate(date)
+            .addParameter("recordReference", "139-9781419719806")
+            .addParameter("LAYERID",Integer.toString( 2021))
+            .setAccessKey("nigel")
+            .create()
+            .generate(sessionID);
+
+        try
+        {
+            SignedURL.builder(Method.GET, url).create().findValid(sessionID);
+            fail("should fail");
+        }
+        catch(ExpiriedSignedURLException e)
+        {
+            //expected
+        }
+    }
     
     public void testValidFor7Days() throws ExpiriedSignedURLException, NoMatchingSignatureException
     {
